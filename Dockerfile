@@ -5,6 +5,7 @@ RUN go build -o /server
 
 # app
 # work?
+# work again?
 FROM diamol/base
 
 ENV IMAGE_API URL="http://iotd/image" \
