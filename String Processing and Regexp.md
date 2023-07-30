@@ -745,4 +745,12 @@ Any object that can be an event target -- this just includes the `Window`and `Do
 
 ## Unions of Object types
 
-It is resonable in Ts code to want to be able to describe a type that can be one or more different object types that have slightly dif
+It is resonable in Ts code to want to be able to describe a type that can be one or more different object types that have slightly different properties -- 
+
+```sh
+git pull origin master --rebase
+```
+
+### Inferred Object-type unions
+
+And, if a varaible is given an initial value that could be one of multiple object types, Ts will infer its type to be a union of object types.
