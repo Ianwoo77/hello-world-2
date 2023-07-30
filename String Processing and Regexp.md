@@ -753,4 +753,77 @@ git pull origin master --rebase
 
 ### Inferred Object-type unions
 
-And, if a varaible is given an initial value that could be one of multiple object types, Ts will infer its type to be a union of object types.
+And, if a varaible is given an initial value that could be one of multiple object types, Ts will infer its type to be a union of object types that have -- That union type will have a constituent for each of the possible object shapes. Like:
+
+```tsx
+const poem = Math.random()>0.5
+?{name: "The double image", pages:7}: {name:"her kind", rhymes:true};
+```
+
+So the poem value always has a name property of type `string`and may or may not habve pages and rhymes props.
+
+### Explicit Object-type Unions
+
+Alternatively, can be more explicit about your object types by being explicit with your own union of object types. Doing so requires writing a bit more code but comes with the advantage of giving you more control over your object types. Like:
+
+```tsx
+type PoemWithPages = {
+    name: string;
+    pages: number;
+};
+
+type PoemWithRhymes = {
+    name: string;
+    rhymes: boolean;
+};
+
+type Poem = PoemWithPages | PoemWithRhymes;
+
+const poem: Poem = Math.random() > 0.5
+    ? { name: "The double image", pages: 7 }
+    : { name: "her kind", rhymes: true };
+
+poem.rhymes; // eror, does not exist
+```
+
+### Narrowing object types
+
+If the type checker sees that an area of code can only be run if a union typed value contains a certain property, it will narrow the value's type to only the constituents that contain that property. In other words, Ts' type narrowing will apply to objects if you check their shape in code.
+
+```js
+if ("rhymes" in poem)
+    console.log(poem.rhymes);
+else
+    console.log(poem.pages);
+```
+
+### Discrimnated Unions
+
+Another popular form of union typed objects in js and ts is to have a property on the object indicate what shape the object is -- This kind of type shape called discrimated union. Just like:
+
+```tsx
+type PoemWithPages = {
+    name:string; pages: number; type: 'pages';
+}
+if (poem.type==='pages') poem.pages;
+```
+
+### Intersection types
+
+TypeScripts `|`union types represent the type of a value could be one of two or more different types. Ts allows representing a type that is *multiple types at the same time* -- `&`intersection type -- Are typically used with aliased object types to create a new type that combines multiple existing object types.
+
+```tsx
+type ArtWork = {genre: string; name:string;};
+type Writing = {pages: number; name: string};
+type WrittenArt = ArtWork | Writing;
+==> 
+    {genre:string; name:string, pages: number;}
+```
+
+This ShortPoem type always has an `author`prop, then is also a discrimnated union on a `type`property.
+
+```tsx
+type ShortPoem = {author:string} & (
+{kigo: string, type:"haiku"} | {meter: nubmer; type: "villanlle"})
+```
+
