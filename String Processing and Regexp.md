@@ -827,3 +827,12 @@ type ShortPoem = {author:string} & (
 {kigo: string, type:"haiku"} | {meter: nubmer; type: "villanlle"})
 ```
 
+### Dangers of Intersection Types
+
+Intersection types are a useful concept, but it's easy to use them in ways that confuse either yourslef or compiler.
+
+### never
+
+Intersection types are also easy to misuse and create an impossible type with. Primitive types cannot be joined together as consituents in an intersection type cuz it's possible for a value to be multiple primiteives at the same time. FORE:
+
+`type not = number & string;` // type: never
