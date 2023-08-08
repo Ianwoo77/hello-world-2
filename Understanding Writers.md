@@ -529,3 +529,781 @@ tshirts=[(color,size) for color in colors for size in sizes]
 tshirts
 ```
 
+## Working with Razor Views
+
+Razor views contain just HTML elements and C# expressions, Expressions are mixed in with the HTML elements and denoted with the `@`character. When the view is used to generate a response, the expressions are evaluated, and the results are included in the content sent to the client. This expression gets the name of the `Product`view model object provided by the action method and produces output.
+
+By default, Razor views are compiled directly int a **DLL**. and the generated C# classes are not written to the disk during the build process, can see the generated classes, by adding the following setting to the `WebApp.csproj`.
+
+### Setting the view model type
+
+The generated class for the `.cshtml`file is derived from the `RazorPage<T>`-- but Razor doesn't know what type will be used by the action method for the view model -- so it has selected `dynamic`as the generic type argument.
+
+### Razor Syntax
+
+The Razor compiler separates the static fragments of HTML from the C# expressions which are then handled separately in the generated class file. Directies are expressions that give instruction to the Razor view engine -- `@model`is just a directive, fore, that tells the view engine to use a specific type for the view model. like:
+
+`@model, @using, @page, @section, @addTagHelper, @namespace, @functions, @attribute, @implements`
+`@inherits @inject`.
+
+## Using the View bag
+
+Action methods provdie views with data to display with a veiw model, but sometimes additional info is required. Action methods can use the *view bag* to provide a view with extra data, as shown like:
+
+```cs
+public async Task<IActionResult> Index(long id =1)
+{
+    ViewBag.AveragePrice =
+        await context.Products.AverageAsync(p => p.Price);
+    return View(await context.Products.FindAsync(id));
+}
+
+public IActionResult List()
+{
+    return View(context.Products);
+}
+```
+
+So the `ViewBag`property is inherited from the `Controller`base class and returns a `dynamic`object. This allows action methods to create new properties just by assigning values to them -- The values assigned to the `ViewBag`prop by the action method are available to the view through a property also called `ViewBag`.
+
+```html
+<td>
+    @Model?.Price.ToString("c")
+    (@(((Model?.Price/ViewBag.AveragePrice)*100).ToString("F2"))% of average price)
+</td>
+```
+
+### Using temp data
+
+The temp data feature allows a controller to preserve data from one request to another,which is useful when performing redirections -- Temp data is stored using a cookie unless session state is enabled when it is stored as sessin data. Unlike session data, temp data values are *marked for deletion* when they are read and removed when the request has been processed.
+
+```cs
+public class CubeController : Controller
+{
+    public IActionResult Index()
+    {
+        return View("Cube");
+    }
+
+    public IActionResult Cube(double num)
+    {
+        TempData["value"] = num.ToString();
+        TempData["result"] = Math.Pow(num, 3).ToString();
+        return RedirectToAction("Index");
+    }
+}
+```
+
+For this -- Also a `Cube`action -- which relies on the model binding process to obtain a value for its `num`parameter from the request -- the `Cube`action method performs its calculation and stores `num`value and the calculation result just using the `TempData`property, and returns a **dictionary** that is used to store k-v paris.
+
+```html
+<h6 class="bg-secondary text-white text-center m-2 p-2">Cubed</h6>
+<form method="get" asp-action="Cube" class="m-2">
+    <div class="mb-3">
+        <label>Value</label>
+        <input name="num" class="form-control"
+               value="@(TempData["value"])" />
+    </div>
+    <button class="btn btn-primary mt-1" type="submit">
+        Submit
+    </button>
+</form>
+
+@if (TempData["result"] != null)
+{
+    <div class="bg-info text-white m-2 p-2">
+        The cube of @TempData["value"] is @TempData["result"]
+    </div>
+}
+```
+
+So, the base class used for Razor views provides access to the temp data through a `TempData`property, allowing values to be read within expressions -- in this case, temp data is used to set the content of an `input`element and display a results summary. To see the effect, use a browser to navigate to . And the object returned by the `TempData`property provides a `Peek`method, which allows you to get a data value without makeing it for deletion. And a `Keep`, used to prevent a previously read from being deleted. Note that it doesn't portect a value forever.
+
+And, Controllers can define properties that are decorated with the `TempData`attribute -- which is an alternative to use the `TempData`property like this -- 
+
+```cs
+public IActionResult Cube(double num) {
+    Value = num.ToString();
+    Result = Math.Pow(num, 3).ToString();
+    return RedirectToAcition(..);
+}
+[TempData] public string? Value {get;set;}
+[TempData] public string? Result {get;set;}
+```
+
+### Working with Layouts
+
+The Razor view engine supports the concept of *sections*-- allow you to provide regions of content within a layout.
+
+```html
+@model Product?
+@{...}
+@section Header {
+	Prodcut info
+}
+<tr><th></th></tr>...
+@section Footer {
+...
+}
+<!-- the index.cshtml file -->
+```
+
+Sections are defined using the Razor `@section`expression followed by a name for a section. In the `_Layout.cshtml`:
+
+```html
+<h6 class="...">
+    @RenderSection("Header")
+</h6>"
+```
+
+### partial Views
+
+Are applied using a feature called *tag helpers* -- are configured in the view imports file, which was added. To enable fature required for partial views -- just like:
+
+```html
+@model Product
+<tr>
+	<td>@Model.Name</td>
+    <td>@Model.Price</td>
+</tr>
+```
+
+Applying a Partial view -- are applied by adding `partial`element in another view or layout just like:
+
+```cs
+@foreach(Product p in Model) {
+    <partial name="_RowPartial" model="p" />
+}
+```
+
+## Understanding Content-encoding
+
+Razor views provide two useful features for encoding content - the HTML content-encoding feature ensures that expression responses don't change the structure of the response sent to the browser, which is an important security feature. The JSON encoding feature encodes an object as JSON and inserts it into the response, which can be useful debugging feature and can also be useful when providing data to Js applications.
+
+### Understanding HTML encoding
+
+The Razor view engine just encodes expression results to make them safe to include in an HTML document without changging its structure.
+
+```cs
+public IActionResult Html(){
+    return View((Object)"This is a <h3><i>string</i></h3>");
+}
+```
+
+This pass a string that contains HTML elements -- to create the view for the new action method, add a razor view file named `html.cshtml`to the `Views/home` like:
+
+```html
+@model string
+<!-- ... -->
+<body>
+    <div class="...">
+        @Model
+    </div>
+</body>
+```
+
+The view model string have been escaped so:
+
+```html
+<div class="...">
+    @Html.Raw(Model)
+</div>
+```
+
+So, do not disable safe encoding unless you are entirely confident that no malicious content will be passed to the view.
+
+### Understanding JSON encoding
+
+The `Json`prop -- added to the class from the view -- can be used to encode an object as JSON -- the most common use for JSON data is in RESTful web services -- like:
+
+```html
+@model Product?
+<div class="...">
+    @Json.Serialize(Model)
+</div>
+```
+
+## Modifying and Deleting Data
+
+The `SportsStore`application can store `Product`objects in the dbs and perform queries to read them back again. Most also require the ability to make changes to the data after it has been stored.
+
+1. Core apps can serve browser-based clients, or can provide APIs for mobile and other clients
+2. The Framework code handles the raw requests, and calls into Rps and web API controller Handlers.
+3. Write these handlers using primitive provided by the framework. Typically invoke methods in your domain logic.
+4. Domain can use external services and databases to perform its function and to persist data.
+
+what types of apps can build -- 
+
+- Minimal APIs -- Simple HTTP APIs can be consumed by mobile apps or browser-based single-page applications.
+- Web APIs
+- gRPC APIs -- used to build efficient binary APIs for server -- to just for server-to-server communication using gRPC
+- Razor pages -- build to Razor pages MVC
+- Blazor.
+
+### How does ASP.NET core process a request
+
+When build a web application with ASP.NET core, browsers will still be using the same HTTP protocol as before to communicate with your app -- ASP.NET core itself encompasses everything that takes palce on the server to handle a request, including verifying that the request 
+
+Every Core application has a built-in web server Kestrel -- that is just responsible for receiving raw requests and constructing an internal representation of the data, an `HttpContext`object, which the rest of the app can use. Ur applicaiton can use details stored in `HttpContext`to generate an appropriate response to the request, which may be to generate some HTML, or, access denied.
+
+## Brief overview of an ASP.NET core application
+
+1. An http requrest is made to the server for the home page.
+2. Request is forwarded by IIS/Nginx/Apache to your core app
+3. The Core web server receives the HTTP request and passes it to the middleware
+4. Middleware processes the request and passes it to the endpoint
+5. Endpoint generates a response, fore, HTML
+6. Response passes through middleware back to the web server
+7. The response text is sent to the browser.
+
+`HttpContext`object -- constructed by the Core web server is used by the application as a sort of storage box for a single request. Anything that's specific to this particular request and the subsequent response can be associated with it and stored in it -- such as properteis of request, request-specific services, data that's been loaded, or errors that have occurred. The web server fills the initial `HttpContext`with details of the original HTTP requests and other configuraiton details and then passes it to the rest of the application.
+
+Kestrel isn't the only HTTP server available in core -- most performant and is cross-platform. Is responsible for receiving the request data and constructing a C# representation of the request.
+
+### Program.cs file -- defining app
+
+All Core apps start life as a .NET console app -- Before C# 9, .NET program had to include a `static void Main`, typically declared in a class called Program. With top-level statements you can write the body of this method directly in the file, and the compiler generates the `Main`method for you -- when combined with C# 10 features such as implicit `using`statements -- dramatically simplifies the entry-point code.
+
+In .NET 7 all the default templates use top-level statements like: In this simple app -- `WebApplicationBuilder`configures a lot of things by default, including -- 
+
+- *Configuration* -- your app loads values from JSON files and environment variables that you can use to control the app's runtime behavior, such as loading connection strings for a dbs.
+- *Logging* -- Includes an extensible logging system for observability and debugging
+- *Services* -- Any classes depends on for providing functionality.
+- *Hosting* -- uses the Kestrel web server by default to handle requests.
+
+## SportsStore: Modifying and Deleting Data
+
+To provide consistent access to the new data to the rest -- added a file called IOrderRepository to the `Models`like: Then creating Controllers and Views like:
+
+```cs
+public class OrdersController : Controller
+{
+    private IRepository productRepository;
+    private IOrderRepository orderRepository;
+
+    public OrdersController(IRepository prodRepo, IOrderRepository orderRepo)
+    {
+        productRepository = prodRepo;
+        orderRepository = orderRepo;
+    }
+
+    public IActionResult Index() => View(orderRepository.Orders);
+
+    public IActionResult EditOrder(long id)
+    {
+        var products = productRepository.Products;
+        Order order = id == 0 ? new Order { CustomerName = default! } : orderRepository.GetOrder(id);
+        IDictionary<long, OrderLine> linesMap =
+            order.Lines?.ToDictionary(l => l.ProductId)
+            ?? new Dictionary<long, OrderLine>();
+        ViewBag.Lines = products.Select(p => linesMap.ContainsKey(p.Id)
+                                        ? linesMap[p.Id]
+                                        : new OrderLine { Product = p, ProductId = p.Id, Quantity = 0 });
+
+        return View(order);
+    }
+
+    [HttpPost]
+    public IActionResult AddOrUpdateOrder(Order order)
+    {
+        // ... todo
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    public IActionResult DeleteOrder(Order order)
+    {
+        orderRepository.DeleteOrder(order);
+        return RedirectToAction(nameof(Index));
+    }
+}
+```
+
+So the `LINQ`statement in the `EditOrder`action method may look convoluted, but the prepare the `OrderLine`data so that there is one object for every `Product`, even if there has been no previous selection for that product. For a new Order, this means that the `ViewBag.Lines`prop will be populated with a sequence of `OrderLine`objects -- corresponding to each `Product`in the dbs -- with `Id`and `Quantity`prop set to zero.
+
+When the object is stored in the dbs, the zero `Id`value will indicate this is a new object, and the dbs server will assign a new unique PK.
+
+For existing orders, the `ViewBag.Lines`prop will be populated with the `OrderLine`objects read from the dbs, filled out with extra objects with zero `Id`prop for the remaining products.
+
+This structure takes advantage of the way that Core MVC and EF core fit together and simplifies the prodcess of updating the dbs. just like:
+
+```html
+@model IEnumerable<Order>
+
+<h3 class="p-2 bg-primary text-white text-center">Orders</h3>
+
+<div class="container-fluid mt-3">
+    <div class="row">
+        <div class="col-1 fw-bold">Id</div>
+        <div class="col fw-bold">Name</div>
+        <div class="col fw-bold">Zip</div>
+        <div class="col fw-bold">Total</div>
+        <div class="col fw-bold">Profit</div>
+        <div class="col-1 fw-bold">Status</div>
+        <div class="col-3"></div>
+    </div>
+    
+    <div>
+        <div class="row placeholder p-2"><div class="col-12 text-center">
+            <h5>No Orders</h5>
+        </div></div>
+        
+        @foreach (Order o in Model)
+        {
+            <div class="row p-2">
+                <div class="col-1">@o.Id</div>
+                <div class="col">@o.CustomerName</div>
+                <div class="col">@o.ZipCode</div>
+                <div class="col">@o.Lines?.Sum(l=>l.Quantity
+                                                  *(l.Product?.RetailPrice- l.Product?.PurchasePrice))</div>
+                <div class="col-1">@(o.Shipped ? "Shipped":"pending")</div>
+                <div class="col-3 text-end">
+                    <form asp-action="DeleteOrder" method="post">
+                        <input type="hidden" name="Id" value="@o.Id" />
+                        <a asp-action="EditOrder" asp-route-id="@o.Id"
+                           class="btn btn-outline-primary">Edit</a>
+                        <button type="submit" class="btn btn-outline-danger">
+                            Delete
+                        </button>
+                    </form>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+<div class="text-center">
+    <a asp-action="EditOrder" class="btn btn-primary">Create</a>
+</div>
+```
+
+This viw just present a summary of the `Order`objects in the dbs and displays both the total price of the products ordered and the amount of profit that will be made. There are buttong to create a new order and to edit an delete an existing one.
+
+And to provide the view for creating or editing an order, added a file called `EditOrder.cshtml`to the `Views/Orders`:
+
+```html
+@model Order
+
+<h3 class="p-2 bg-primary text-white text-center">Create/Update Order</h3>
+
+<form asp-action="AddOrUpdateOrder" method="post">
+    <div class="mb-3">
+        <label asp-for="Id"></label>
+        <input asp-for="Id" class="form-control" readonly/>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="CustomerName"></label>
+        <input asp-for="CustomerName" class="form-control"/>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="Address"></label>
+        <input asp-for="Address" class="form-control"/>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="State"></label>
+        <input asp-for="State" class="form-control"/>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="State"></label>
+        <input asp-for="State" class="form-control"/>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="ZipCode"></label>
+        <input asp-for="ZipCode" class="form-control"/>
+    </div>
+
+    <div class="form-check">
+        <label class="form-check-label">
+            <input type="checkbox" asp-for="Shipped" class="form-check-input"/>
+            Shipped
+        </label>
+    </div>
+
+    <h6 class="mt-1 p-2 bg-primary text-white text-center">Products Ordered</h6>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col fw-bold">Product</div>
+            <div class="col fw-bold">Category</div>
+            <div class="col fw-bold">Quantity</div>
+        </div>
+        @{ int counter = 0; }
+
+        @foreach (OrderLine line in ViewBag.Lines)
+        {
+            <input type="hidden" name="lines[@counter].Id" value="@line.Id"/>
+            <input type="hidden" name="lines[@counter].ProductId"
+                   value="@line.ProductId"/>
+            <input type="hidden" name="lines[@counter].OrderId" value="@Model.Id"/>
+            <div class="row mt-1">
+                <div class="col">@line.Product.Name</div>
+                <div class="col">@line.Product?.Category?.Name</div>
+                <div class="col">
+                    <input type="number" name="lines[@counter].Quantity"
+                           value="@line.Quantity"/>
+                </div>
+            </div>
+            counter++;
+        }
+    </div>
+
+    <div class="text-center m-2">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <a asp-action="Index" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+```
+
+This view provides the user with a form containing `input`for the props defined by the `Order`class. To make that work: NO data is stored when  -- left the `AddOrUpdateOrder`method incomplete and just add like:
+
+```cs
+[HttpPost]
+public IActionResult AddOrUpdateOrder(Order order)
+{
+    order.Lines = order.Lines?
+        .Where(l => l.Id > 0 || (l.Id == 0 && l.Quantity > 0)).ToArray();
+    if(order.Id==0)
+    {
+        orderRepository.AddOrder(order);
+    }
+    else
+    {
+        orderRepository.UpdateOrder(order);
+    }
+    return RedirectToAction(nameof(Index));
+}
+```
+
+The code statement used in the action method rely on a useful EF core feature -- when Pass an `Order`object to `AddOrder`or `UpdateOrder`method, the EF core will store not only the Order but also related `OrderLine`. This may not seem important, but it simplifies a process that would otherwise rquire a series of carefully coordinated updates. And the features for creating and working with related data can be awkward, and in the following, describe common problem.
+
+## Converting a Numeric Value to a Formatted String
+
+Want to create a string representation of a number. Js is a loosely typed language -- will automatically convert any value to a string when it needs to -- fore, if compare a number to a string or join a number to a string -- one of the easiest tricks that js developers use to convert number to strings to simply concatenate an empty string:
+
+`someNumber + ''`
+
+Modern practice just favors *explicit* variable conversions -- Every js object has a built-in `toString()`. Often, need to customize the string representaiton of your number -- `Number.toFixed()`..
+
+### Inserting Special Characters
+
+The simplest approach with many special characters is simple -- Case-Insersitive string comparsion -- just use of the `String.toLowerCase()`method on both strings like:
+
+```js
+if (a.toLowerCase()===b.toLowerCase()) {...}
+```
+
+An alternate, bulleproof approach is to use the `String.localeCompare()`with sensitivity set to *accent*. like:
+
+```js
+const a = "hello";
+const b = "HELLO";
+if (a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0) {
+    console.log("===")
+}
+```
+
+Otherwise, it just returns a positive or negative integer indicating whether the compared string falls before or after the referenced string in the sort order. Just note that the second of `localeCompare()`just the locale.
+
+### Checking if a String contains a Specific Substring
+
+Simply need -- use the `String.includes()`method. Optionally, can tell the `includes()`where to start its search. The second parameter.
+
+And the search that `includes()`performs is case-sensitive, if .. can call `toLowerCase()`on both strings first.
+
+### Replacing all occurrences of a String
+
+Want to find all occurrences of a specific substring in a string and replace them with something else. Use the `String.replaceAll()`method to make the change in one step.
+
+`String.replaceAll(search, value);`
+
+### Replacing HTML tags wth named Entities
+
+Want to just insert markup into a web page, and escape the markup -- this could be cuz you want to show some example HTML markup in a tutorial article like: -- Use the `String.replaceAll()`to convert angle brackets into the named HTML entities.
+
+### Converting the first letter of a String to Uppercase
+
+Split off the first letter and capitalize it with `String.toUpper()`. Join the uppercase letter to the remainder of the string, which you can get with `String.slice()`. like:
+
+```js
+const original = 'if you cut an orange, there is a risk it will orbisulate';
+const fixed = original[0].toUpperCase() + original.slice(1);
+fixed
+```
+
+To get a fragment of a string, use the `slice()`method-- when calling `slice()`, must always specify the index where you want to start your string extraction. FORE, `slice(5)`just starts at index pos 5. And if don't want the `slice()`to continue to the end of the string -- the optional second -- 
+
+`const substring = original.slice(5,10);`
+
+## Numbers 
+
+There are few ingredients more essential to everyday programming than numbers. Js had just a single do-everything numeric data type called `Number`-- the standard `Number`and `BigInt`only consider when need to deal with huge whole numbers -- 
+
+### Generating Random Numbers
+
+`Math.random()`to just generate a floating-point value between 0 and 1. Assuming your range spans from some minimum number `min`to `max`like:
+
+`randomNumber = Math.floor(Math.random()*(max-min+1)+min);`
+
+And the `Math`object is stocked full of static utility methods you can call at any time. This recipe uses `Math.random()`to get a random factional number, and `Math.floor()`to truncate the decimal portion.
+
+### Generating Cryptographically Random Numbers
+
+Use the `window.crypto`property to get an instance of the `Crypto`object. Then use its `getRandomValues()`to generate random values that have more *entropy*. And if want to round a number to a certain precision can use the `Math.round()`method to round a number to the nearest whole number.
+
+### Converting a String to a Number
+
+Want to parse a number in a string like: -- if a conversion just fails, the `Number()`function assigns the value `NaN`to your variable, can test for this failure by calling `Number.isNaN`method immediately. However, the `parseFloat()`is stricter with blank strings.
+
+Using the `Number.toString()`with an arg that specifies the base you are converting to like:
+
+```js
+const num =25;
+console.log(num.toString(16));
+```
+
+## Arrays
+
+Js arrays are wildly flexible can hold any mixture of values inside. In most cases, though, individual Js arrays are intended to hold only one specific type of value. Adding values of a different type may be confusing to readers, or worse, the result of an error that could cuz problems in the program.
+
+Ts just respects the best practice of keeping to one data type per array by remembering what type of data is initially inside an array, and only allowing the array to operate on that kind of data. if in ts:
+
+```tsx
+const warrios = ['artem', 'boud'];
+warrios.push('zzz');  // ok
+warrios.push(true); // error
+```
+
+Can think of Ts' inference of an array's type from its initial members as similar to how it understands variable types from their initial values. Ts generally tries to understand the intended types of your code from how values are assigned
+
+### Array Typs
+
+As with other variable declarations, variables meant to store arrays don't need to have an initial value. The variables can start off `undefined`and receive an array value later. Ts wil want you to let it know what typyes of values are meant to go in the array by giving the variable a type annotation -- like:
+
+```tsx
+let arrayOfNumbers: number[];
+```
+
+### Function Types
+
+Array types are an example of a syntax container where function types may need parentheses to distinguish what is in the function type or not. like:
+
+`let createstrings: ()=>string[];`
+`let stringCreators (()=>string)[];`// array of functions
+
+### Union-type Arrays
+
+Can use a union type to indicate that each element of an array can be one of multiple select types. When using array types with unions, parentheses may need to be used to indicate which part of an annotation is the contents of the array or the surrounding unoin type.
+
+```tsx
+let stringOrArrayOfNumber : string | number[]; // either a number or strings
+let arrayOfStringOrNumber : (string | number)[]; // each either a number or a string
+```
+
+Ts will understand from an array's declaration that it is a union type array if it contains more than one type of element. FORE this is a `(string | undefined)[]`type.
+
+```tsx
+const namesMaybe = ["Aqualtune", "Blenda", undefined];
+```
+
+### Any arrays
+
+If don't include a type annotation on a varaible intially set to an empty array, ts will treat the array as evolving `any[]`, meaning that it can just receive any content. Don't recommand.
+
+### Spreads and Rests
+
+Ts recognizes and will perform type checking on the js practice of `...`spreading an array as a rest parameter. Array used as args for rest parameters must have the same array type as the rest parameter.
+
+```tsx
+function logWarrios(greeting: string, ...names: string[]) {
+    for (const name of names) {
+        console.log(`${greeting}, ${name}!`)
+    }
+}
+const warriors = ['abc', 'def', 'efi'];
+logWarrios("hello", ...warriors);
+```
+
+### Tuples
+
+It is sometimes useful to use an array of a fixed size - also known as a *tuple* -- Tuple arrays have a specific known type at each index that may be more specific than a union type of all possible members of the array. Tuple arrays have a specific known type at each index that may be more specific than a union type of all possible members of the array. The syntax to declare a tuple type like an array literal. like:
+
+```tsx
+let yearAndWarrior: [number, string];
+```
+
+Tuples are often ued in js alongside array destructuring -- like:
+
+```tsx
+let [year, warrior]= Math.random()>0.5
+?[340, "Archidamia"]: [1828, "Rani of Jansi"];
+```
+
+### Tuple Assignability
+
+Tuple types are treated by Ts as more specific than variable length array types. That means that variable length array types are not assignable to typle types. And tuple of different lengths are also not assignable to each other. FORE:
+
+```tsx
+function logPair(name: string, value: number) {
+    console.log(`${name} has ${value}`);
+}
+const pairArray = ["amage", 1];
+logPair(...pairArray); // error
+const pairArray2: [string, number] = ['amage', 2];
+logPair(...pairArray2); //ok
+```
+
+### Inferences
+
+Ts generally treats created arrays as variable length arrays, not tuples. If it sees an array being used as a variable's initial value or the returned value for a function, then it will assume a flexible size array. So:
+
+```tsx
+// return type: (string | number)[]
+function firstCharAndSize(input:string) {
+    return [input[0], input.length];
+}
+```
+
+### Explicit tuple types
+
+Tuple types may be used in type annotations, such as the return type annotation for a function, if the function is declared as returning a tuple type and returns an array literal, that array literal will be inferred to be a tuple instead of array.
+
+```tsx
+function firstCharAndExplicit(input: string): [string, number]{
+    return [input[0], input.length];
+}
+```
+
+### Const asserted tuples
+
+Typing out tuple can be a plain for the same reasons as typing out any explicit type annotations. Ts provides an `as const`operator known as a *const assertion* that can be placed after a value. Const assertions tell ts to use the most literal, read-only possible form of the value when inferring its type. If one is placed after an array literal, it will indicate that the array should be just treated as a tuple like:
+
+```tsx
+const unionArray = [1157, "Tomoe"];
+const readonlyTuple = [1157, "Tomoe"] as const;
+```
+
+In practice, read-only tuples are convenient for function returns -- Returned values from functions that return a tuple are foten destructured immediately anyway, so the tuple being read-only does not get in the way of using func. like:
+
+```tsx
+function firstCharAndSizeAsConst(input:string) {
+    return [input[0], input.length] as const;
+}
+```
+
+Before you start floating elements, you will put the outer structure of the page in place. Add the next listing to stylesheet like:
+
+```css
+:root {
+    box-sizing: border-box;
+}
+*, ::before, ::after{
+    box-sizing: inherit;
+}
+
+body {
+    background-color: #eee;
+}
+body *+*{
+    margin-top:1.5em;
+}
+header {
+    padding: 1em 1.5em;
+}
+```
+
+This layout is common for certering content on a page,  can achieve it by placing your content inside two nested containers and then set margins on the inner container to position it within the outer one. Calls it the *double container pattern*. Need to note, in our example, `<body>`jsut serves as the outer container, by default, this is already 100% of the page width, so you won't have to apply any new styles to it. Inside that, you've wrapped the entire contents of the page in a `<div class="container">`which serves as the inner container. just:
+
+```css
+.container {
+    max-width: 1080px;
+    margin: 0 auto /* auto left and right margin */
+}
+```
+
+Instead of adding an extra `div`to your markup, use a *pseduo-element*, by using the `::after`pseudo-element selector, can effectively insert an element into the DOM at the end of the container. just set the class like:
+
+```css
+.clearfix::after {
+    display: block; /* non-inline value */
+    content: "";
+    clear: both;
+}
+```
+
+And some developers prefer to use a modified version of the clearfix that will conain all margins For the modified version, update the clearfix in your stylesheet to match this listing like:
+
+## Unexpected float catching
+
+Now that the white container contains the floated -- the four media boxes aren't laying out in two even rows. Cuz box 2 is shorter than box 1. The exact nature of this behavior is dependent on the heights of each of the floated blocks If box 1 is shorter than box2, there will be no edge for the 3rd box to catch on.
+
+By floating a series of elements to one side, can end up with a wild array of layouts, depending on the heights of each box. Even changing the browsers width can alter things as this will affect line wrapping and will change the heights of the elements.
+
+The fix for this is simple, namely, the third float needs to clear the floats above it. More generally, the first element of each row needs to clear the float above it.
+
+```css
+.media:nth-child(odd){
+    clear:left;
+}
+
+.media {
+    float:left;
+    margin: 0 1.5em 1.5em 0;
+    width:calc(50% - 1.5em);
+    padding:1.5em;
+    background-color: #eee;
+    border-radius: .5em;
+}
+```
+
+### Media objects and block formatting contexts
+
+Now that each of the 4 gray boxes is laid out, look at their contents -- have an image on one side and a block of text beside it -- another ommon pattern in page layouts. Just added the classes media-image and media-body to the left and right parts of each media object, which use to position them -- start by floating the image to the left like:
+
+```css
+.media-image {
+    float:left;
+}
+.media-body{
+    margin-top:0;
+}
+
+/* override the top margin applied by
+user agent style */
+.media-body h4 {
+    margin-top:0;
+}
+```
+
+### Establishing a block formatting context
+
+If examine the media-body class -- see that its box extends all the way to the left, so it envelops the floated image. But once it's clear of the bottom of the image, just moves all the way to the left of the box.
+
+To achieve the layout on the right -- need to establish sth called block formatting context for the meida body -- BFC. This isolation does 3 things for element that establish the BFC -- 
+
+1. Contains the top and bottom margins of all elements within it. Won't collapse with margins of element outside of the block formatting context.
+2. It contains all floated elements within it.
+3. Doesn't overlap with floated element without BFC.
+
+Can just establish this in sereval ways -- like:
+
+- `float: left | right`
+- `overflow: auto hidden scroll`but `visible`
+- `display: inline-block table-cell...flex, inline-flex...`
+- `position: absolute`
+
+```css
+.media-image {
+    float:left;
+    margin-right: 1.5em;
+}
+.media-body{
+    overflow: auto;
+    margin-top:0;
+}
+
+```
+
+So, using `overflow:auto`for the BFC is generally the simplest approach. Can use instead the other properties mentioned -- but some have considerations to just take into account -- A float or an inline-block will grow to 100%, so you'd need to restrict the width of the element to preent it from line wrapping below the float. On the contrary, a table-cell element will only grow enough to contain its content  so may need to set large width to force it remaining space.

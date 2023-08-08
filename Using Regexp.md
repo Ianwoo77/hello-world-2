@@ -823,3 +823,268 @@ lazyValue = returnsVoid();
 
 Some functions not only don’t return a value, but aren’t meant to return at all.
 
+# Advanced Web service features
+
+In this, describe advanced features that can be used to create RESTful web services -- explain how to deal with related data in EF core queries, how to add support for the HTTP PATCH method, use the negotiations, and how to use OPENAPI to describe your web services.
+
+```cs
+[Route("api/[controller]")]
+[ApiController]
+public class SuppliersController : ControllerBase
+{
+    private DataContext context;
+
+    public SuppliersController(DataContext context)
+    {
+        this.context = context;
+    }
+
+    [HttpGet("{id}")]
+    public async Task<Supplier?> GetSupplier(long id)
+    {
+        return await context.Suppliers.FindAsync(id);
+    }
+}
+```
+
+The Controller extends the `ControllerBase`class, declares a dependency on the `DataContext`service, and defines an action named `GetSupplier`that handles `GET`for `/api/[controller]/{id}`URL pattern.
+
+The dbs will be seeded as part of the application startup.
+
+## Dealing with related data
+
+Although this isn't -- there is one aspect of querying for data that most web services encounter. The data model classes defined include navigation properties, which EF core can populate by following -- like:
+
+```cs
+[HttpGet("{id}")]
+public async Task<Supplier?> GetSupplier(long id)
+{
+    return await context.Suppliers
+        .Include(s => s.Products)
+        .FirstAsync(s => s.SupplierId == id);
+}
+```
+
+The `Include`method tells ef core to follow a relationship in the dbs and load the related data. The `Include`method selects the `Products`navigation property defined by the `Supplier`class -- which causes EF core to load the `Product`objects associted with selected `Supplier`and assign them to the `Products`property.
+
+For this the JSON serializer has reported an *object cycle* -- which just means that there is a circular reference in the data that is being serialized for the response. You might struggle why using the `Include`method has created a circular reference. The problem is caused by an EF core feature that attempts to minimize the amount of data read from the dbs but the causes problem in Core applications.
+
+When EF core creates objects, it *populates navigation properties* with objects that have already been created by the same dbs context. This can be a useful feature in some kinds of applications, such as desktop apps, where a dbs context object has a long life and is used to make many requests over time. But -- it isn't useful for Core applications, where a new context object is created for each HTTP request.
+
+EF core queries the dbs for `Product`objects assocaited with the selected `Supplier`and assigns them to the `Supplier.Products`navigation property. The problem is that EF core then looks at each `Product`object it has created and uses the query response to populate the `Product.Supplier`navigation property as well. For an ASP.NET core app, this is an unhelpful step to take cuz it createds a circular reference between navigation props of the `Supplier`and `Product`objects.
+
+So, when the `Supplier`object is returned by the controller's action method, the JSON serializer works its way through the properties and follows the references to the `Product`objects, each of which has a reference back to the `Supplier`object, which it follows in a loop until the maximum depth is reached and the exception.
+
+### Breaking circular references in related data
+
+There is no way to stop EF core from creating circular references in the data it loads in the dbs. Preventing the exception means that presenting the JSON serializer with data that doesn't contain circular references -- which is most easily done by altering the objects after they have been created by EF core and before they are serialized.
+
+```cs
+[HttpGet("{id}")]
+public async Task<Supplier?> GetSupplier(long id)
+{
+    var supplier= await context.Suppliers
+        .Include(s => s.Products)
+        .FirstAsync(s => s.SupplierId == id);
+    if(supplier.Products!=null)
+    {
+        foreach(Product p in supplier.Products)
+        {
+            p.Supplier = null;
+        }
+    }
+    return supplier;
+}
+```
+
+The `foreach`loop sets the `Supplier`property of each `Product`object to `null`, whcih breaks the circular references. 
+
+### Supporting the HTTP PATCH method
+
+For simple data types, edit operations can be handled by replacing the existing object using the `PUT`method, which is the approach -- even if you only need to change a single property value in the `Product`class, fore, it isn't too much trouble to use a `PUT`method and include the values for all the other `Product`properties too.
+
+Not all data types are easy to wrok with, either cuz they define too many properties, or because the client has received values only for selected properties. The solution is to use a `PATCH`request, whcih sends just the changes to the web service rather than a complete replacement object.
+
+### Understanding the JSON patch
+
+Core has support for working with the JSON Patch std, which allows changes to be specified in a uniform way. The JSON patch std allows for a complex set of chagnes to be described.
+
+## Expanding the Model
+
+In this, expand the data model for the SportsStore application beyond the single `Product`class, show you how to normalize data by replacing a string property with a separate class and explain how to access the data once you have created it. Also add support for reprenting customer orders, which is an essential part of any online store.
+
+Consolidate the process for creating and editing `Product`objects into a single view.
+
+```cs
+public IActionResult UpdateProduct(long key)
+{
+    return View(key==0?new Product { Name=default!, Category=default!} : repository.GetProduct(key));
+}
+
+[HttpPost]
+public IActionResult UpdateProduct(Product product)
+{
+    if (product.Id == 0)
+    {
+        repository.AddProduct(product);
+    }
+    else
+    {
+        repository.UpdateProduct(product);
+    }
+    return RedirectToAction(nameof(Index));
+}
+```
+
+The consolidated actions rely on the default value for `long`properties to determine whether the user wants to modify an existing object to create a new one. Have updated the `Index`to reflect the changes in the controller like:
+
+```html
+<h3 class="p-2 bg-primary text-white text-center">Products</h3>
+
+<div class="container-fluid mt-3">
+
+    <div class="row">
+        <!-- ... -->
+    </div>
+
+
+    @foreach (Product p in Model)
+    {
+        <div class="row p-2">
+            <!-- .. -->
+        </div>
+    }
+    <div class="text-center">
+        <a asp-action="UpdateAll" class="btn btn-primary">Edit All</a>
+    </div>
+</div>
+```
+
+## Creating a Data Model Relationship
+
+At the moment, each `Product`object is created with a `Category`value that is expressed as a `string`value. In a real project, it would only be a matter of time before a typo puts a product into an unintended category.
+
+### Adding a Data Model Class
+
+The starting point is to create a new data model class -- added a file called `Category.cs`:
+
+```cs
+public class Category
+{
+    public long Id { get; set; }
+    public required string Name { get; set; }
+    public string? Description { get; set; }
+}
+```
+
+The `Category`class will represent a category of products, the `Id`prop is the PK.
+
+### Creating the Relationship
+
+The next is to create a relationship between the two data model classes, which is done by adding properties to one of those classes -- In any data relationship, one of the classes is known as the dependent entity, and it is this class to which the properties are added. To work out which class is the dependent entity, Ask which type of object *cannot exist without other*. In this case, a category just will be to exist without containing any products -- Want every product to belong to a category -- and means that the `Product`is the dependent entity. Just like:
+
+```cs
+public long CategoryId { get; set; }
+public Category? Category { get; set; }
+```
+
+The first prop added is called `CategoryId`and is an example of a FK property, which EF core will use to track relationship by assigning a pk value that identifies a `Category`object. The name of the FK prop is composed of the class anme plus the PK property name -- `CategoryId`
+
+The second replaces the existing -- and is an example of a navigatio prop. EF core *will populate this propert*y with the `Category`object that is identified by the FK property, which makes it more natural to work with the data in the database.
+
+### Updating the Context and Creating the Repository
+
+To access the `Category`objects, add a `DbSet<T>`to the dbs context class like:
+
+`public DbSet<Category> Categories => Set<Category>();`The new property follows the same pattern as the existing one -- it is a public property with `get`and `set`clauses. When expand the data model, can provide the rest of the app with access to the new data types by adding members to the existing repositry or by creating a new one.
+
+```cs
+public interface ICategoryRepository
+{
+    void AddCategory(Category category);
+    void UpdateCategory(Category category);
+    void DeleteCategory(Category category);
+
+    IEnumerable<Category> Categories { get; }
+}
+
+public class CategoryRepository: ICategoryRepository
+{
+    private DataContext context;
+    public CategoryRepository(DataContext context) { this.context = context; }
+
+    public IEnumerable<Category> Categories => context.Categories;
+
+    public void AddCategory(Category category)
+    {
+        context.Categories.Add(category);
+        context.SaveChanges();
+    }
+
+    public void UpdateCategory(Category category)
+    {
+        context.Categories.Update(category);
+        context.SaveChanges();
+    }
+
+    public void DeleteCategory(Category category)
+    {
+        context.Categories.Remove(category);
+        context.SaveChanges();
+    }
+}
+```
+
+Have defined the repository interface and implemenation class in a single file and used the simplest approach to performing updates without relying on the change-detection features. Then adding the services like:
+
+`builder.Services.AddScoped<ICategoryRepository, CategoryRepository>();`
+
+Then -- creating and Applying a Migration -- EF core can't store `Category`objects until the dbs has been updated to match the changes in the data model -- to update the dbs, a new migration must be created and applied to the dbs, whcih is done by runinng like:
+
+```sh
+Add-Migration Categories
+Update-Database
+```
+
+The first command creates a new migraiton called `Categories`which will contain the commands required to prepare the dbs to store new objects. The second command executes those commands to update the dbs.
+
+Next, need to create a Controller and View -- have created a *required* relationship between the `Product`and `Category`classes, which means that every `Product`must be associated with a `Category`object, with this kind of relationship, it is helpful to provide the user with the means to manage the `Category`objects in the dbs.
+
+```cs
+public class CategoriesController : Controller
+{
+    private ICategoryRepository repository;
+
+    public CategoriesController(ICategoryRepository repo)=> repository = repo;
+
+    public IActionResult Index()=> View(repository.Categories);
+
+    [HttpPost]
+    public IActionResult AddCategory(Category category)
+    {
+        repository.AddCategory(category);
+        return RedirectToAction(nameof(Index));
+    }
+
+    public IActionResult EditCategory(long id)
+    {
+        ViewBag.EditId = id;
+        return View("Index", repository.Categories);
+    }
+
+    [HttpPost]
+    public IActionResult UpdateCategory(Category category)
+    {
+        repository.UpdateCategory(category);
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    public IActionResult DeleteCategory(Category category)
+    {
+        repository.DeleteCategory(category);
+        return RedirectToAction(nameof(Index));
+    }
+}
+```
+

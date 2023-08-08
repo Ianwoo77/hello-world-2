@@ -497,3 +497,731 @@ func home(w http.ResponseWriter, r *http.Request) {
 ```
 
 It’s important to point out that the file path that you pass to the `template.ParseFiles()`function must either be relative to your *current working directory*, or an abs path. In the code made the path relative to the root of the project directory.
+
+## Supporting the HTTP `PATCH`method
+
+For simple data types, edit operations can be handled by replacing the existing object using the `PUT`-- which is the approach -- even if you need to change a single property value in the `Product`, and it isn't too much trouble to use a `PUT`Method and include the values for all the other `Product`properties too.
+
+### Understanding JSON patch
+
+Core has support for working with JSON patch std, which allows changes to be specified in a uniform way -- the JSON patch std allows for a complex set of changes to be described, but for this chapter, going to focus on just the ability to change the value of a property. A HTTP patch request like:
+
+```json
+[
+    {"op":"replace", "path":"Name", "value":"Surf Co"},
+    {"op":"replace", "path":"City", "value":"Los Angeles"}
+]
+```
+
+And, A json patch document is expressed as an array of operations, each operation has an `op`property, which specifies the type of operation, and a `path`property, whcih specifies where the operation will be just applied. For the example app, for most apps, only the `replace`op is required.
+
+### Installing and configuring the JSON Patch package
+
+Support for JSON PAtch isn't installed when a project is created with the tempalte -- to instll just like:
+
+```sh
+install-package Microsoft.AspNetCore.Mvc.NewtonsoftJson
+```
+
+The ms implementaion of JSON patch relies on 3rd-party serializer. just add the satement like:
+
+`builder.Services.AddControllersWithViews().AddNewtonsoftJson();`
+
+```cs
+builder.Services.Configure<MvcNewtonsoftJsonOptions>(opts =>
+{
+    opts.SerializerSettings.NullValueHandling =
+    Newtonsoft.Json.NullValueHandling.Ignore;
+});
+```
+
+The `AddNewtonsoftJson`method enables the `JSON.NET`serializer, which replaces the std ASP.NET core serializer, the JSON.NET serializer has its own configuration class.
+
+### Defining the action method
+
+To add support for `PATCH`method, add the action method to the `SupplierController`class.
+
+```cs
+[HttpPatch("{id}")]
+public async Task<Supplier?> PatchSupplier(long id, 
+                                           JsonPatchDocument<Supplier> pathDoc)
+{
+    Supplier? s = await context.Suppliers.FindAsync(id);
+    if(s!=null)
+    {
+        pathDoc.ApplyTo(s);
+        await context.SaveChangesAsync();
+    }
+    return s;
+}
+```
+
+The action method is decorated with the `HttpPatch`attribute, which denotes that it will handle `HTTP PATCH`requests, the model binding feature is used to process the JSON patch document through a `JsonPatchDocument<T>`method parameter -- the class defines a `ApplyTo`method, which applies each op to an object. The action method retrieves a `Supplier`object from the dbs.
+
+Just note that the URL is `http://localhost:5193/api/suppliers/1`.
+
+## Understanding Content Formatting
+
+The web service examples have produced JSON results, but this is not the only data format that action methods can produce -- the Content format selected for an action result depens on 4 factors -- The formats that the client will accept, the formats that the application can produce, the content policy specified by the action method, and the type returned by the default policy works just fine for most applications.
+
+The best way to get acquainted with content formatting is to understand what happens when neither the client nor the action method applies any restrictions to the formats that can be used.
+
+1. If the action method returns a `string`then the string is sent unmodified to the client -- and the `Content-Type`is just set to `text/plain`.
+2. For all other data types, including other simple types such as `int`, the data is formatted as JSON, and the `Content-type`Header of the response is set to `application/json`.
+
+Strings just get special treatment cuz they cause problems when are encoded as JSON, when you encode other simple types, such as C# `int`value 2 -- then result is a quoted string. When encode a string just becomes ""hello"". FORE:
+
+```cs
+[HttpGet("string")]
+public string GetString() => "This is a string response";
+
+[HttpGet("object")]
+public async Task<Product> GetObject() {
+    return await context.Products.FirstAsync();
+}
+```
+
+### Content negotiation
+
+Most clients include an `Accept`header in a request, which just specifies the set of formats that hey are willing to receive in the response -- expressed as a set of MIME types. like:
+
+`Accept: text/html, application/xhtml+xml; q=0.9,image/avif,image/webp,image/apng...`
+
+This header indicates that Chrome can handle the HTML... The `q`values in the header specify relative preference, where the value is 1.0 by default -- specifying a `q`value of 0.9 for `application/xml`just tells the server that chrome will accept XML data but prefers to deal with HTML or XHTML. The `*/*`item tells the server that Chrome will accetp any format, but its `q`value specifies that is the lowest.
+
+### Enabling XML formatting
+
+For content negotiation to work, the app must be configured so there is some choice in the formats that can be used. like:
+
+```cs
+builder.Services.AddControllers()
+    .AddNewtonsoftJson()
+    .AddXmlDataContractSerializerFormatters();
+```
+
+### Specifying an action result format
+
+The data formats that the MVC framework can sue for an action method result can be constrained using the `Produces`attribute just like:
+
+```cs
+[Produces("application/json")]
+public...
+```
+
+## Caching output
+
+This allows caching policies to be defined and applied to endpoints and controller. Just like:
+
+```cs
+builder.Services.Configure<MvcOptions>(opts=> {
+    opts.RespectBrowserAcceptHeader = true;
+    opts.ReturnHttpNotAcceptable= true;
+});
+
+// ... 
+app.UseOutputCache();
+
+//...
+[HttpGet("string")]
+[OutputCache(PolicyName="30sec")]
+public string...
+```
+
+The `OutputCache`attribute can be applied to the entire controller, which causes the responses for all action methods, or applied to individual actions.
+
+## Using Controllers With Views Part I
+
+Razor view engine, which is just responsble for generating HTML responses that can be displayed.
+
+### Creating HTML controller
+
+Controllers for HTML apps are similar used for web services but some important differences -- To create an HTML controller, add a class named `HomeController`to the `Controllers`folder like:
+
+### Creating a Razor View -- 
+
+```html
+<h6 class="bg-primary text-white text-center m-2 p-2">
+    Product Table
+</h6>
+<div class="m-2">
+    <table class="table table-sm table-striped table-bordered">
+        <tbody>
+        <tr><th>Name</th><td>@Model.Name</td></tr>
+        <tr>
+            <th>Price</th>
+            <td>@Model.Price.ToString("c")</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+```
+
+### Selecting a View by name
+
+The action method relies entirely on convention, leaving Razor to select the view that is used to generate the resonse. Action methods can select a view by providing a name as an argument to the `View`. FORE:
+
+```cs
+public async Task<IActionResult> Index(long id =1)
+{
+    Product? prod= await context.Products.FindAsync(id);
+    if (prod?.CategoryId==1) 
+    {
+        return View("Watersports", prod);
+    }
+    else
+    {
+        return View(prod);
+    }
+}
+```
+
+The action method selects the view based on the `CategoryId`prop of the `Product`object that is retrieved from the dbs, 
+
+`View("Watersports", prod)`specifies the file extension or the location for the view. Just notice that the action method doesn't specify the file extension or the location for the view -- it is the job of the view engine to translate `Watersports`into a view file.
+
+### Using Shared Views
+
+When the Razor view engine locates a view, it looks the `Views/[controller]`folder and then the `View/Shared`folder, this search pattern means that views that contain common content can be shared between controllers, avoiding duplication.
+
+And the `Categories`controller receives a respository to access category data through its ctor and defines actions that support querying the dbs creating, updating, deleting.
+
+```html
+@model IEnumerable<Category>
+
+<h3 class="p-2 bg-primary text-white text-center">Categories</h3>
+
+<div class="container-fluid mt-3">
+    <div class="row">
+        <div class="col-1 fw-bold">Id</div>
+        <div class="col fw-bold">Name</div>
+        <div class="col fw-bold">Description</div>
+        <div class="col-3"></div>
+    </div>
+    
+    @if (ViewBag.EditId == null)
+    {
+        <form asp-action="AddCategory" method="post">
+            @await Html.PartialAsync("CategoryEditor", new Category())
+        </form>
+    }
+    
+    @foreach (Category c in Model)
+    {
+        @if (c.Id == ViewBag.EditId)
+        {
+            <form asp-action="UpdateCategory" method="post">
+                <input type="hidden" name="Id" value="@c.Id" />
+                @await Html.PartialAsync("CategoryEditor", c)
+            </form>
+        }
+        else
+        {
+            <div class="row p-2">
+                <div class="col-1">@c.Id</div>
+                <div class="col">@c.Name</div>
+                <div class="col">@c.Description</div>
+                <div class="col-3">
+                    <form asp-action="DeleteCategory" method="post">
+                        <input type="hidden" name="Id" value="@c.Id" />
+                        <a asp-action="EditCategory" asp-route-id="@c.Id"
+                           class="btn btn-outline-primary">Edit</a>
+                        <button type="submit" class="btn btn-outline-danger">
+                            Delete
+                        </button>
+                    </form>
+                </div>
+            </div>
+        }
+    }
+</div>
+```
+
+This view provides an all-in-one interface for managing categories and delegates creating, and editing objects to partial view -- To create the partial view, just added a file called `CategoryEditor.cshtml`to the `Views/Categories`folder. like:
+
+```html
+@model Category
+
+<div class="row p-2">
+    <div class="col-1"></div>
+    <div class="col">
+        <input asp-for="Name" class="form-control" />
+    </div>
+    <div class="col">
+        <input asp-for="Description" class="form-control" />
+    </div>
+    <div class="col-3">
+        @if (Model.Id == 0)
+        {
+            <button type="submit" class="btn btn-primary">Add</button>
+        }
+        else
+        {
+            <button type="submit" class="btn btn-outline-primary">Save</button>
+            <a asp-action="Index" class="btn btn-outline-secondary">Cancel</a>
+        }
+    </div>
+</div>
+```
+
+So, to make it easier to move around the app, added the elements to the shared layout -- 
+
+```html
+<div class="container-fluid">
+    <div class="row p-2">
+        <div class="col-2">
+            <a asp-controller="Home" asp-action="Index"
+               class="@GetClassForButton("Home")">
+                Prodcuts
+            </a>
+                
+            <a asp-controller="Categories" asp-action="Index"
+               class="@GetClassForButton("Categories")">
+                Categories
+            </a>
+        </div>
+        <div class="col">
+            @RenderBody()
+        </div>
+    </div>
+</div>
+```
+
+### Populating the dbs with Categories
+
+It will be helpful to have some data to work with while completing the data relationship. Start the app using `dotnet.run`click the `Categories`button, and use the form to add:
+
+## Using a Data Relationship
+
+The part of the app that deals with `Product`object must be updated to reflect the new relationship in the dbs. There are two parts of this process -- including the category data when querying the dbs and allowsing the user to select a category when creating or editing a product.
+
+### Working with Related Data
+
+EF core just ignores relationships *unless U explicitly* include them in queries . This means that navigation properties such as `Category`defined by the `Product`class will be left `null`by default. The `Include`extension method is used to tell EF core to populate a navigation property with related data is called on the `IQueryable<T>`object that represents a query.
+
+```cs
+public void AddProduct(Product product)
+{
+    context.Products.Add(product);
+    context.SaveChanges();
+}
+
+public Product GetProduct(long key) => context.Products
+    .Include(p => p.Category).First(p => p.Id == key);
+
+public void UpdateProduct(Product product)
+{
+    Product p = GetProduct(product.Id); // get the base line
+    p.Name = product.Name;  // product from the Data binding through the form
+    // p.Category = product.Category;
+    p.PurchasePrice = product.PurchasePrice;
+    p.RetailPrice = product.RetailPrice;
+    p.CategoryId= product.CategoryId;
+    context.SaveChanges();
+}
+```
+
+So the `Include`just is defined in the namespace, and it accepts a lambda that selects the navigation property you want EF core to include in the query. And the `Find`method that used for the `GetProduct`method cannot be used with the `Include`method.
+
+### Selecting a Category for a Product
+
+Updated the `Home`controller so that it has access to the `Category`data through the repository and passes on the data to its view. This will allow the view to select from the complete set of categories when editing.
+
+```cs
+public IActionResult UpdateProduct(long key)
+{
+    ViewBag.Categories = categoryRepository.Categories;
+    return View(key==0?new Product { Name=default!, Category=default!} : repository.GetProduct(key));
+}
+```
+
+To allow the user to choose just need a `select`control:
+
+EF core uses the FK to query for the data it needs to create the `Category`objects related to each `Product`and uses an inner join to combine data from the `Products`and `Categories`tables. So once you have created all the three -- for the editing the category, and change the value of name. 
+
+### Adding Support for Orders
+
+To demonstrate a more complex relationship , add support for creating and storing orders and use them to just represent the `Product`selections made by customers.
+
+Creating The dataModel -- Just adding a file called `Order.cs`to the `Models`folder and using:
+
+```cs
+public class Order
+{
+    public long Id { get; set; }
+    public required string CustomerName { get; set; }
+    public string? Address { get; set; }
+    public string? State { get; set; }
+    public string? ZipCode { get; set; }
+    public bool Shipped { get; set; }
+
+    public IEnumerable<OrderLine> Lines { get; set; }
+}
+
+public class OrderLine
+{
+    public long Id { get; set; }
+    public long ProductId { get; set; }
+    public Product? Product { get; set; }
+
+    public int Quantity { get; set; }
+
+    public long OrderId { get; set; }
+    public Order? Order { get; set; }
+}
+```
+
+Each `OrderLine`object is related to an `Order`and a `Product`and has a property that indicates how many of that product the customer requires. To make it convenient to access the `Order`data, added the properties like:
+
+```cs
+public DbSet<Order> Orders => Set<Order>();
+public DbSet<OrderLine> OrderLines => Set<OrderLine>();
+```
+
+### Creating the Repository and Preparing the Dbs
+
+To provide consistent access to the new data to the rest of the app, added a file called `IOrderRepostiory`to the Models
+
+```cs
+public interface IOrderRepository
+{
+    IEnumerable<Order> Orders { get; }
+    Order GetOrder(long key);
+    void AddOrder(Order order);
+    void UpdateOrder(Order order);
+    void DeleteOrder(Order order);
+}
+
+public class OrderRepository: IOrderRepository
+{
+    private DataContext context;
+    public OrderRepository(DataContext context)=> this.context = context;
+
+    public IEnumerable<Order> Orders => context.Orders
+        .Include(o => o.Lines!).ThenInclude(l => l.Product);
+
+    public Order GetOrder(long key)=> context.Orders
+        .Include(o=>o.Lines).First(o=>o.Id==key);
+
+    public void AddOrder(Order order)
+    {
+        context.Orders.Add(order);
+        context.SaveChanges();
+    }
+
+    public void UpdateOrder(Order order)
+    {
+        context.Orders.Update(order);
+        context.SaveChanges();
+    }
+
+    public void DeleteOrder(Order order)
+    {
+        context.Orders.Remove(order);
+        context.SaveChanges();
+    }
+}
+```
+
+This repository implementation follows the pattern established for the other repositories and forgoes change detection in favor of simplicity.
+
+## Functions
+
+Recall that in Js, if a function parameter is not provided, its argument value insdie the function defaults to `undefined`. Sometimes function parameters are not necessary to provide, and the intended use of the function is for that `undefined`value. Wouldn't want Ts to report type errors for failing to provide arguments to those optional parameters. Ts just allows annotating a paramter as optional by adding `?:`like:
+
+```tsx
+function announceSong(song: string, singer?: string) {
+    console.log(`song: ${song}`);
+    if (singer) {
+        console.log(`Singer: ${singer}`);
+    }
+}
+```
+
+### Default Parameters
+
+Optional parameters in js may be given a default value with an `=`and a value in their declaration. For those optional parameters, cuz a value is provided by default, their Ts type does not implicitly have the `|`and `undefined`union added on inside the function.
+
+```tsx
+function singAllTheSong(singer: string, ...songs: string[]) {
+    for(const song of songs){
+        //..
+    }
+}
+```
+
+### Return Types
+
+Ts is percepitive -- if it understands all the possible values returned by a function, it will know what type the function returns-- in this example -- 
+
+```tsx
+function singSongs(songs: string[]) {
+    //...
+    return songs.length;
+}
+```
+
+So, if a func contains multiple `return`statements with different values, Ts will just infer the return type to be a union of all the possible returned types. FORE:
+
+```tsx
+function getSongAt(songs: string[], index:number){
+    return index<songs.length
+    ? songs[index]
+    :undefined;
+}// return string | undefined
+```
+
+### Explicit Return types
+
+Generally recommand not borthering to explicitly declare the return types of functions with annotations -- there are a few cases where it can be useful specifically for functions -- 
+
+- You might want to enforce functions with many possible types of recursive function.
+- Ts will refer to try to reason through return types of recursive functions.
+- Can speed up ts type checking in very large projects.
+
+```tsx
+function singSongRecursive(songs: string[], count=0): number {
+    return songs.length? singSongRecursive(songs.slice(1), count+1): count;
+}
+```
+
+### Function types
+
+Js allows us to pass functions around as values -- that means we need a way to declare the type of a parameter or variable meant to hold a function. Function syntax looks similar to an arrow function, but with a type instead of the body -- the `nothingInGivesString`type describes a function with no parameters and a returned `string`value like:
+
+`let nothingInGivesString: ()=> string;`
+`let inputAndOutput: (songs: string[], count?:number) => number;`
+
+So, function types are frequently used to describe callback parameters and returned `string`value. FORE, the following runOnSongs snippet declares the type of its `getSongAt`parameter to be a function that taks in an `index:number`and returns `string`-- Passing `getSongAt`matches that type, but `longSong`fails for taking in a `string`as its paramter instead of a `number`.
+
+```tsx
+const songs = ["Juice", "Shake it off", "What's up"];
+function runOnSongs(getSOngAt: (index: number) => string) {
+    for (let i = 0; i < songs.length; i += 1) {
+        console.log(getSOngAt(i));
+    }
+}
+
+function getSOngAt(index: number) {
+    return `${songs[index]}`;
+}
+
+runOnSongs(getSOngAt);  //ok
+```
+
+The error message for `runOnSongs`is an example of an assignability error that includes a few levels of details -- when complaining that two function types aren't assignable to each other, Ts will typically give three levels of detail:
+
+### Parameter Type Inferences
+
+It would be cumbersome if we had to declare parameter types for every function we write -- including inline functions used as parameters -- Js can infer the types of parameters in a function provided to a location with the declared type. FORE, This `singer`variable is known to be a function that takes in a parameter of type `string`.
+
+```tsx
+let singer: (song:string) => string;
+singer = function(song) {
+    // type of song: string
+    return...
+}
+```
+
+Functions passed as arguments to parameters with function paramters types wil have their parameter type inferred as well. FORE the `song`and `index`parameters are inferred by Ts to be `string`and `number`.
+
+```tsx
+const songs = ["..."];
+songs.forEach((song, index)=> {
+    console.log(`${song} is at index ${index}`);
+})
+```
+
+### Function type Aliases
+
+FORE, this `usesNumberToString`function has a single parameter which is itself the `NumberToString`aliased function type like:
+
+```tsx
+type NumberToString = (input:nubmer)=>string;
+function useNumberToString(numberToString: NumberToString) {...}
+```
+
+### More Return Types
+
+Some funcs aren't meant to return any value -- they eigher have no return or only have don't return a value. Ts allows using a `void`keyword to refer to the return type of such a fucntion that returns nothing.
+
+Functions whose return type is `void`may not return a value, This `longSong`function is declared as returning `void`.
+
+```tsx
+function longSong(song:string | undefined): void {
+    if(!song){
+        return ; //ok
+    }
+    return true; // error -- byte boolean is not assignable to type void
+}
+```
+
+`void`can be useful as the return type in a fucntion type declartion. When used in a function type declaration, `void`indicates that any returned from the funciton would be ignored.
+
+FORE, this `songLogger`variable represents a function that takes in a `song:string`and doesn't return a value.
+
+```tsx
+let songLogger: (song:string)=> void;
+songLogger= (song)=> {
+    console.log(`${songs}`);
+};
+songLogger("heart of Glass");
+```
+
+And, note that although Js functions all return `undefined`default if no real value is returned, `void`is not the same as `undefined`-- void means that the return type of a function will be just ignored. Trying to assign a value of type `void`to a value whose type instead includes `undefined`is a type error like:
+
+```tsx
+function returnsVoid() {
+    return;
+}
+let lazyValue: string | undefined;
+lazyValue = returnsVoid(); // error
+```
+
+And the distinction between `undefined`and `void`is particluar useful for ignoring any return value from a function passed to a location whose type is declared as returning `void`. Fore, the `forEach`method on arrays takes a callback that just returns `void`-- Funcitons provided to `forEach`can return any value they want. `records.push(record)`
+
+```tsx
+const records: string[]=[];
+function saveRecords(newRecords: string[]) {
+    newRecords.forEach(record=> records.push(record));
+}
+```
+
+### Never Returns
+
+Some functions not only don't return a value, but aren't meant to return at all. Never returning functions are those that always throw an error or run in infinite loop -- If a function is meant to never return, adding an `explict:never` type.
+
+```tsx
+function fail(message: string) never {
+    throw new...
+}
+    
+function workWithUnsafeParm(parm: unknown) {
+    if(typeof param !== "string"){ // unknown need type checking
+        fail(...)
+    }
+}
+```
+
+### Function overloads
+
+Some js functions are able to be called with drasitcally different sets of parameters that can't be represented just by optional and/or rest parameters -- these functions can be described with a ts syntax called overload signatures. Declaring different versions of the function's name..
+
+When determining whether to emit a syntax error for a call to an overloaded function, Ts will only look at the function's overload signatures. FORE:
+
+```tsx
+function createDate(timestamp: number): Date;
+function createDate(month: number, day: number, year: number): Date;
+function createDate(monthOrTimestamp: number, day?: number, year?: number) {
+    return day === undefined || year === undefined
+        ? new Date(monthOrTimestamp)
+        : new Date(year, monthOrTimestamp, day);
+}
+createDate(554356800)
+```
+
+Overload signatures, as with other type system syntaxes, are erased when compiling Ts output js.
+
+### Call-signature Compability
+
+The implementation signature used for an overloaded funciton's implemenation is what the function's implementation uses for parameter types and return type. Thus, the return type and each parameter in a function's overload signagures must be assignable to the parameter at the same index in tis implemantion signature.
+
+## String and REGEXP
+
+### Checking for an Existing, NonEmpty String
+
+Wan to verify a variale is defined, is a string, and is not empty before use it. Before you start working with a string, often need to validate that it's safe to use, when do, there are different questions -- 
+
+`if(typeof unknownVariable === 'string')`
+`if(typeof unknownVariable==='string' && unknownVariable.length>0)`
+`if(typeof unknownVariable==='string' && unknownVariable.trim().length>0)`
+
+The order of this is just important-- js uses *short-circuit* evaluation. If:
+
+`const unknownVariable= new String('test')`-- now the `typeof`operator will return `object`-- If you need to handle that:
+
+```js
+if(typeof unknownVariable === 'string' || 
+  String.prototype.isPrototypeOf(unknownVariable)) {
+    // it's a string or String
+}
+```
+
+### Converting a Numeric value to a Formatted String
+
+Want to create a string representation of a number -- Js is just a loosely typed language, and it will automatically convert any value to a string -- And, every js object has a built-in `toString()`method, including `Number`object, and can call like:
+
+```js
+const someNumber=42;
+const someString= someNumber.toString();
+```
+
+```py
+import collections
+
+Card = collections.namedtuple('Card', ['rank', 'suit'])
+
+
+class FrenchDeck:
+    ranks = [str(n) for n in range(2, 11)] + list('JQKA')
+    suits = 'spades diamonds clubs hearts'.split()
+
+    def __init__(self) -> None:
+        self._cards = [
+            Card(rank, suit) for suit in self.suits for rank in self.ranks
+        ]
+
+    def __len__(self):
+        return len(self._cards)
+
+    def __getitem__(self, position):
+        return self._cards[position]
+```
+
+```py
+from random import choice
+choice(deck)
+```
+
+- Users of your class don't have to memorize arbitrary method names for std operations.
+- It's easier to benefit from the rich stdlib and avoid reinventing the wheel.
+
+Cuz `__getitem__`delegates to the `[]`operator of `self._cards`, our deck automatically supports slicing -- here is how we look at the top 3 cards from brand-new deck, and then pick just the aces like:
+
+Just by implementing the `__getitem__`sepcial method, our deck is also iterable like:
+
+```py
+for card in deck:
+    print(card)
+```
+
+Can also iterate over the deck in revcerse like:
+
+```py
+for card in reversed(deck):
+    print(card)
+```
+
+Iteration is often implicit -- if a collectin has no `__contains__`method -- the `in`operator does a sequential scan. Case in point, `in`works with our `FrenchDeck`class cuz it is iterable. like:
+
+```py
+Card('Q', 'hearts') in deck
+```
+
+And how about shorting -- A common system of ranking cards is by rank -- then by suit in the order of spades, hearts... here is a function that ranks cards by that rule, returning 0 for the 2 of clubs and 51 for the ace of spades.
+
+```py
+suit_values = dict(spades=3, hearts=2, diamonds=1, clubs=0)
+
+def spades_high(card):
+    rank_value = FrenchDeck.ranks.index(card.rank)
+    return rank_value * len(suit_values) + suit_values[card.suit]
+
+for card in sorted(deck, key=spades_high):
+    print(card)
+```
+
+Although `FrenchDeck`implicitly inherits from the `object`class, most of its functionality is not inherited, but comes from leveraging the data model and composition. By implementing the special methods `__len__`and `__getitem__` Thanks to composition, the `__len__`and `__getitem__`implementation can delegate all the work to a `list`object.
+
+The first thing thing to know about special methods is that they are meant to be called by the PY interpreter -- not by U, don't write `my_object.__len__()`, and the interpreter takes a shortcut when dealing for built-in types like `list,str,bytearray`.
+
+More often than not, the special method call is implicit, fore the statement `for i in x:`actually cause the invocation of `iter(x)`-- which in turn may call `x.__iter__()`if that is available, or use `x.__getitem__()`. Normally, your code should not have many direct calls 
