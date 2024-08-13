@@ -896,3 +896,6 @@ removeProduct() {
 
 So the `button`elements are configured with an event binding -- the `(click)`attribute, which tells Angualr how to respond when the button is clicked.
 
+### Understanding Angular change detection
+
+Angular automatically reflects changes in the application state in the HTML presented to the user. Modern browsers are excellent at dealing with the complexities of displaying HTML, but operations using the browser’s DOM API are still relatively slow, and expensive to perform and Angular is careful to change as little content as possible when reflecting a state change.
