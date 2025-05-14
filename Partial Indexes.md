@@ -249,3 +249,177 @@ func fanIn(done <-chan struct{}, channels ...<-chan any) <-chan any {
 
 In a nutshell, fanning in involves creating the multiplexed channel consumers will read from, and then spinning up one goroutine for each incoming channel, and one goroutine to close the multiplexed channel when the incoming channels have all been closed.
 
+### Programming with channels
+
+Working with channels requires a different way of programming than when using memory sharing -- The idea is to have a set of goroutines, each with its own internal state, exchanging info with other goroutines by passing messages on Go’s channels -- In this way, each goroutine’s state is isolated from direct inference by other exuections, reducing the risk of RC -- Go’s own mantra is not to communicate by shared memory but to instead share memory by communicating - since memory is more prone to RC and requires compex sync techniques -- should avoid it when possible and instead use message passing.
+
+Will start by discussing communicating CSP and then move on to look at the common patterns used when using message passing with channels.
+
+#### Communicating sequential processes
+
+In previous chapter -- discussed a model of concurrency using goroutines - shared memory, and primitives -- mutexes, condition variables and semaphores -- this is the classic way to model concurrency -- Programming with a low-level model of concurrency means that as programmers, we need to work harder to manage the complex and reduce bugs in our software -- don’t know when a thread of execution will be scheduled by the OS.
+
+Programming with such low-level tools for concurrency, when combined with modern software development teams and ever-increasing business complity -- 
+
+#### Avoiding interfernce with immutability
+
+One way to greatly reduce the risk of RC is to not allow our programming to modify the same memory from multiple concurrent executions.
+
+DEF -- *Immutabe* literally means unchangeable -- In computer programming, we use immutability when we initialize structures without providing any way to modify them. When the programming requires changes to these structures, we create a new copy of the structure containing the required changes.
+
+#### Concurrent programming with CSP
+
+A different, higher-level model of concurrency was proposed by CSP -- Communicting sequential process is a formal language used to describe concurrent systems. The key difference when using the CSP model is that executions are not sharing memory -- instead, they pass copies of data to each other -- Go implements this model with the user of goroutines and channels -- Just like in the CSP model -- Go’s channels are synchoronized and unbuffered by default.
+
+#### Reusing common patterns with channels
+
+The first pattern we will examine is having a common channel that instructs goroutine to stop processing messages -- saw how we can use Go’s `close(channel)`-- call to notify a goroutine that no more messages are coming. The goroutine can then terminate its execution -- 
+
+One solution is to use a quit channel together with the `select`statement. Fore:
+
+A pattern of this -- like:
+
+```go
+func printNumber(numbers <-chan int, quit chan int) {
+    go func() {
+        for i := 0; i<10; i++ {
+            fmt.Println(<-nubmers)
+        }
+        close(quit)
+    }()
+}
+
+func main() {
+    numbers := make(chan int)
+    quit := make(chan int)
+    printNumbers(numbers, quit)
+    next := 0
+    for i:=1; ; i++ {
+        next += i
+        select {
+        case numbers <-next:
+        case <-quit:
+            //...
+        }
+    }
+}
+```
+
+#### Pipelining with channels and goroutines
+
+Look at a pattern of connecting goroutine to form an execution pipeline -- can demonstrate this with an app that processes the next contents of web pages. The first step in our app to generate URLs of web pages that we can download later -- can have a goroutine generate several URLs and send them on a channel to e consumed. Shows an imp of the `generateUrls()`-- creates a goroutine that generates URL strings on an output channel -- The output channel is returned by the function -- the function also accepts a quit channel -- 
+
+```go
+func generateUrls(quit <-chan struct{}) <-chan string {
+	urls := make(chan string)
+	go func() {
+		defer close(urls)
+		for i := 100; i <= 130; i++ {
+			url := fmt.Sprintf("https://rfc-editor.org/rfc/rfc%d.txt", i)
+			select {
+			case urls <- url:
+			case <-quit:
+				return
+			}
+		}
+	}()
+	return urls
+}
+```
+
+Then write the logic to download the contents of these pages -- for this task, we just need a goroutine that accepts a stream of URLs and outputs the next contents into another output stream.
+
+```go
+func downloadPages(quit <-chan int, urls <-chan string) <-chan string {
+    pages := make(chan string)
+    go func() {
+        defer close(pages)
+        moreData, url := true, ""
+        for moreData {
+            select {
+                case url, moreData = <-urls:
+                if moreData {
+                    resp, _ := http.Get(url)
+                    if resp.StatusCode != 200 {
+                        panic("server errro"+ resp.Status)
+                    }
+                    body, _ := io.ReadAll(resp.Body)
+                    pages <-string(body)
+                    resp.Body.Close()
+                }
+            case <-quit:
+                return
+            }
+        }
+    }()
+    return pages
+}
+```
+
+We are passing a copy of the web document on the channel -- we can do this since the web pages are only a few KB in size -- using message passing for large objects, such as images or video -- in this might have a detrimental effect on performance. Just like:
+
+```go
+func main() {
+    quit := make(chan struct{})
+    defer close(quit)
+    results := downlaodPage(quit, generateUrls(quit))
+    for result := range results {
+        fmt.Println(result)
+    }
+}
+```
+
+When run the preceding `main()`, get the text from the web pages, and they are printed. Following this pattern of accepting the input channel as a function input parmaeter and returning the output channel makes building pipelines easy.
+
+## Creating a `decodePostForm`helper
+
+To assist with this, create a new `decodePostForm()`helper which does 3 things -- 
+
+- Calls the `r.ParseForm`on the current request
+- Calls the `app.formDecoder.Decode()`to unpack the HTML form data to a target destination
+- Checks for a `form.InvalidDecoderError`error and triggers a panic if we ever see it.
+
+```go
+type application struct {
+	errorLog       *log.Logger
+	infoLog        *log.Logger
+	snippets       *models.SnippetModel
+	users          *models.UserModel
+	templateCache  map[string]*template.Template
+	formDecoder    *form.Decoder
+	sessionManager *scs.SessionManager
+}
+
+func (app *application) decodePostForm(r *http.Request, dst any) error {
+    err := r.ParseForm()
+    if err != nil {
+        return err
+    }
+    
+    // Call the `Decode()` on our decoder instance, passing the target destination as the first
+    err = app.formDecoder.Decode(dst, r.PostForm)
+    if err != nil {
+        //..
+    }
+    return nil
+}
+```
+
+### Stateful HTTP
+
+A nice touch to improve our use experience would be to display a one-time confirmation message which the user sees after they have added a new snippet. A confirm message like this should only show up for the user once and no other users should ever see the message -- 
+
+A confirmation message like this should only show up for user once and no other users should ever see the message. To make this work, need to start sharing data between HTTP requesets for he same user -- The most common way to do this is to implement a *session* for the user.
+
+Choosing a session manager -- fore, `gorilla/sessions`or `alexedwards/scs`-- depending on your project’s needs. An HTTP session is a seq of network request-response transactions between a client and a server, used to maintain state and track user interactions across multiple requests in a stateless protocol like HTTP. Since HTTP itself is stateless -- each request is just independent - sessions provide a way to remember user data -- such as login status or shopping cart contenst -- 
+
+- Begins when a client sends an initial request to a server.
+- Server generates a unique session ID to identify the session
+- The session ID is typically sent back to the client via a cookie -- fore `Set-Cookie: sessionId=abc123`.
+
+Session storage -- The server stores session data in memroy, a dbs, or a file system, associating it with session ID. The client stores only the session ID and includes it in subsequent requests to identify itself.
+
+Session management -- 
+
+- cookies -- most common method -- automatically sends the session ID in the `Cookie`header wtih each request.
+- Session Timeout -- session expire after a peroid of inactivity.
