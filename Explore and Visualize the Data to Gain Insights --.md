@@ -628,3 +628,154 @@ export function PersonScoreReducer() {
 ```
 
 That completes our exploration of the `useReducer`hook. it is more useful for complex state management.
+
+## Designing the nn
+
+```python
+self.linear_relu_stack = nn.Sequential(
+    nn.Linear(28*28, 128),
+    nn.ReLU(),
+    nn.Linear(128, 10),
+    nn.LogSoftmax(dim=1)
+)
+```
+
+This explains in details a piece of simple nn code built on PyTorch. And the code defines a classical freeforward neural network -- *fully connected nn* for processing the Fashion MNIST dbs, a grayscale dataset of 10 different clothing categories with images measuring 28X28 pixels.
+
+- `Sequential()`is a container in PyTorch. Can think of it as an *assembly line*. When input data into, the data will go through the 4 steps in order U write.
+- `nn.Linear(28*28, 128)`-- The first layer, is a layer of neurons that learn a linear relationship -- Func -- it is used to find a linear rel between input and output data.
+- Parameter 2 size 128 -- This is just artificially set by us -- meaning we put 128 neurons in this layer. This layer of the network transforms the 784 features of the input into 128 features.
+- `nn.ReLU()`-- is a nonlinear activation function. Since there are linear layers in front, if it is all linear transformations, the network cannot learn complex patterns. 
+- `nn.Linear(128, 10)`-- This is the last layer of the network. Input must be 128, and the output must be 10. Cuz the Fashion MNIST dbset has a total 10 categories.
+- `nn.LogSoftmax(dim=1)`-- Converts the 10 raw scores output from the previous layer into a logarithmic form of probablity.
+
+##### Core concepts insight -- 
+
+- In the structure of nn, there are usually 3 parts, the input layer -> the hidden layer -> the output layer
+- Why called *hidden layer* -- cuz it is neither the raw data that U feed directly to the model nor the predictions that are finally presented to the user. It is just hidden inside the model and is equivalent to the neurons inside the brain that process info.
+
+##### What is Flattening -- 
+
+- The true shape of the image -- 2D mesh.
+- `nn.Lineer`-- This is the most basic linear neuron layer cannot understand 2D matrices, can only receive 1D arrays.
+- Solution -- Before feeding the picture `nn.Linear`-- the 28X28 matrix must be flattened and straightened.
+
+#### The complete Code
+
+Now that explored the nn, look at the complete code for training a model with the Fashion MNIST data. The image -- the picture in the computer is made up of pixels.  For the nn preferences -- nn are filled with various multiplications and additions.
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+
+# Load the dataset
+# The core point of the original text -- NN prefer to handle 0 decimals 1 between to rather
+# than 0 integers 255.
+transform = transforms.Compose([
+    transforms.ToTensor()  # Automatically converts to tensor and scales to [0, 1]
+])
+train_dataset = datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
+test_dataset = datasets.FashionMNIST(root='./data', train=False, download=True, transform=transform)
+
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+
+# Define the model
+class FashionMNISTModel(nn.Module):
+    def __init__(self):
+        super(FashionMNISTModel, self).__init__()
+        self.flatten = nn.Flatten()
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(28*28, 128),
+            nn.ReLU(),
+            nn.Linear(128, 10),
+            nn.LogSoftmax(dim=1)
+        )
+
+    def forward(self, x):
+        x = self.flatten(x)
+        logits = self.linear_relu_stack(x)
+        return logits
+
+model = FashionMNISTModel()
+
+# Define the loss function and optimizer
+loss_function = nn.NLLLoss()
+optimizer = optim.Adam(model.parameters())
+
+# Train the model
+def train(dataloader, model, loss_fn, optimizer):
+    size = len(dataloader.dataset)
+    model.train()
+    for batch, (X, y) in enumerate(dataloader):
+        # Compute prediction and loss
+        pred = model(X)
+        loss = loss_fn(pred, y)
+
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if batch % 100 == 0:
+            loss, current = loss.item(), batch * len(X)
+            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+# Training process
+epochs = 5
+for t in range(epochs):
+    print(f"Epoch {t+1}\n-------------------------------")
+    train(train_loader, model, loss_function, optimizer)
+print("Done!")
+```
+
+Data transformation and Normalization -- The role of `ToTensor`-- fore:
+
+```python
+transform = transforms.Compose([transforms.ToTensor()])
+```
+
+For this, cuz the picture in the computer is made up of pixels. For grayscale plots, the color depth of each pixel is represented 0 by 255 an integer.
+
+`ToTensor()`-- The magic -- this function does two extremely important things -- 
+
+1. Conversion type -- Converts python’s image format to PyTorch’s proprietary matrix format.
+2. Normalization -- it divdes all 0~255 the integers in the image by 255.
+
+Training nn in PyTorch is almost necessary to normalize data. If don’t do this, the model usually doesn’t learn anything.
+
+```python
+def forward(self, x):
+    x = self.flatten(x)
+    # logits it usually refers to the original predicted value output by the nn.
+    logits = self.linear_relu_stack(x)
+    return logits
+```
+
+1. Why inherit `nn.Module`-- In Pytorch, all custom nn must be inherited from `nn.Module`. U can `nn.Module`think of it as PyTorch.
+2. `__init__`in the initialization method, declaring which components will be used in the network.
+   - `self.flatten= nn.Flatten()`-- Prepare a dough press to flatten a 2D picture into a 1D strip.
+   - `self.linear_relu_stack`-- Containing linear layers and actiation functions.
+3. `forward`-- This is the soul of the nn. `forward`it specifies the flow route of data after it ensures the network.
+
+##### Loss Function -- measuring the Wrong Ruler -- Loss Function
+
+- Func -- How does the machine know if it guesses accurately -- A ruler is needed to measure it. The loss func is this ruler. If the model recognizes the shoes, the loss will be great.
+- When the last layer of your network is used `LogSoftmax`, your loss func must be used `NLLoss`.
+
+##### The Engine that corrects Errors -- Optimizer
+
+```python
+optimizer = optim.Adam(model.parameters())
+```
+
+It’s not enough to know that you are wrong, you have to know how to correct it. The optimizer is the algorithm engine responsible for fine-tuning the internal parameters of the nn based on Loss. The underlying `SGD`is used in ch1, the Adam used here is a more advanced and intelligent algorithm, usually faster and more accurate in finding the correct answer. Just like `optimizer = optim.Adam(model.parameters())`
+
+##### Summary of the tandem ideas -- 
+
+1. built `FashionMNISTModel` -- a factory to process machine vision.
+2. The picture ensure through the main entrance, follows the `forward`route, and finally produces a batch of prediction results.
+3. `NLLLoss`-- the quality inspector
+4. `Adam`-- After receiving the error report, the maintance worker took `model.parameters()`this authority and ran to the factory to adjust the knob of the machine to ensure that the error could be reduced when the next batch of pictures were processed.
