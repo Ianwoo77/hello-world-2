@@ -357,3 +357,274 @@ func (m MovieModel) Update(movie *Movie) error {
 
 It’s important to emphasize that -- just like our `Insert()`method -- the `Update()`method takes a pointer to a `Movie`struct as the input parameter and mutates it in-place again.
 
+# Using the `effect`hook
+
+- A function that executes the effect; at a minimum, this function runs each time the component is rendered.
+- An optional array of *dependencies* that cause the effect function to return when changed.
+
+```tsx
+function SomeComponent() {
+    function someEffect() {
+        console.log("Some effect");
+    }
+    useEffect(someEffect);
+    return ...
+}
+```
+
+Often, an anonymous arrow function is used for the effect function -- Here is the same example but with an anonymous effect function instead -- 
+
+```tsx
+function SomeComponent() {
+    useEffect(()=> {
+        console.log("Some effect");
+    });
+    return...
+}
+```
+
+Here is another example of an effect -- 
+
+```tsx
+function SomeOtherComponent({search}: {search:string}) {
+    useEffect(()=> {
+        console.log("An effect dependent on a search prop, search");
+    }, [search]);
+    return ...
+}
+```
+
+#### The rules of Hooks
+
+There are some rules that most React hooks -- including `useEffect`, must obey -- 
+
+- A Hook can only be called at the top level of a function component, so, a hook can’t be called in a loop or a nested such an event handler.
+- A Hook can’t be called conditionally.
+- A Hook can only be used in function components and not class components.
+
+```tsx
+export function AnotherComponent() {
+    function handleClick() {
+        useEffect(()=>{
+            console.log("Some effect");
+        });
+    }
+    return(
+    	<button onClick={handleClick}>Cause effect</button>
+    )
+}
+```
+
+This is a violation cuz `useEffect`is called in a handler function rather then the top level. A corrected version is as follows -- like:
+
+```tsx
+export function AnotherComponent() {
+    const [clicked, setClicked] = useState(false);
+    useEffect(()=> {
+        if(clicked) {
+            console.log("Some effect");
+        }
+    }, [clicked]);
+    function handleClick() {
+        setClicked(true);
+    }
+    return (<button onClick={handleClick}>Cause effect</button>)
+}
+```
+
+`useEffect`has been lifted to the top level and now depends on the `clicked`state that is set in the handler function.
+
+#### Effect Cleanup
+
+An effect can return a function that performs cleanup logic when the component is unmounted -- Cleanup logic ensures nothing is left that could cause memory leak -- 
+
+```tsx
+function ExampleComponent({onClickAnywhere}: {onClickAnywhere:()=>void}) {
+    useEffect(()=> {
+        function handleClick() {
+            onClickAnywhere();
+        }
+        document.addEventListener("click", handleClick);
+    });
+    return ...
+}
+```
+
+The preceding effect function attaches an event handler to the `document`element. The event handler is never deteached -- though, so multiple event handlers will become attached to the `document`element as the effect is rerun. This problem is resolved by returning a `cleanup`function that detaches the event handler -- as follows -- 
+
+```tsx
+function ExampleComponent( ... ) {
+    useEffect(() => {
+        function handleClick() {
+        onClickAnywhere();
+        }
+        document.addEventListener(“click”, handleClick);
+        return function cleanup() {
+        	document.removeEventListener(“click”, handleClick);
+    };
+        return ...
+});
+```
+
+#### Creating the project -- 
+
+A common use of the effect Hook is fetching data -- carry out the following steps to implement an effect that fetches a person’s name -- just like:
+
+```tsx
+type Person={
+    name:string;
+}
+
+export function getPerson(): Promise<Person> {
+    return new Promise<Person>((resolve)=>{
+        setTimeout(()=>resolve({name:"Bob"}), 1000)
+    });
+}
+```
+
+The function asynchronously return an object `{name: "Bob"}`, after a second has elasped. Notice the type annotation for the return type -- `Promise<Person>`-- the `Promise`type represents a Js promise.
+
+```tsx
+export function PersonScore() {
+    const [name, setName] = useState<string | undefined>();
+    const [score, setScore] = useState(0);
+    const [loading, setLoading] = useState(true);
+    useEffect(() => {
+        getPerson().then((person)=> {
+            setLoading(false);
+            setName(person.name);
+            console.log('State values:', loading, name);
+        });
+    }, []);
+    // or using:
+    useEffect(async ()=> {
+        const person=await getPerson();
+        console.log(person);
+    }, []);
+    if (loading) {
+        return <div>Loading...</div>;
+    }
+
+    return (
+        <div>
+            <h3>{name}, {score}</h3>
+            <button onClick={()=> setScore(score + 1)}>+</button>
+            <button onClick={()=> setScore(score - 1)}>-</button>
+            <button onClick={()=> setScore(0)}>Reset</button>
+        </div>
+    )
+}
+```
+
+#### Understanding `useReducer`
+
+`useReducer`is an alternative, more complex, method of managing state, it uses a `reducer`function for state changes, which takes in the current state value and returns the new state value -- like:
+
+```tsx
+const [state, dispatch] = useReducer(reducer, initialState);
+```
+
+So, `useReducer()`takes in a reducer function and the initial state value as parameters -- it then returns a tuple containing the current state value and a function to `dispatch`state changes. For the `dispatch`function, should takes in an argument that describes the change. This object is often referred to as an action -- an example `dispatch`call is as follows -- `dispatch({type:'add', amount:2})`
+
+For this, there is no defined structure for an action, but it is just *common* practice for it to contain a *property*, such as `type`, to specify the type of change. Other properties in the action can vary depending on the type of change. Then for the `reducer`should be like:
+
+```tsx
+function reducer(state: State, action: Action): State {
+    switch(action.type) {
+        case 'add':
+            return {
+                ...state, total: state.total+action.amount
+            };
+        case '...':
+            //...
+        default:
+            return state;
+    }
+}
+```
+
+The reducer function usually contains a `switch`statement based on the action type, Each `switch`branch makes the required changes to the state and returns the updated state. Also note that can be explicitly defined in its generic parameter as follows:
+
+```tsx
+const [state, dispatch]= useReducer<Reducer<State, Action>>(reducer, initialState);
+```
+
+`Reducer`is a std React type that has generic paramerters for the type of state and the type of action.
+
+```tsx
+type State = {
+    name: string | undefined;
+    score: number;
+    loading: boolean;
+}
+
+type Action =
+    | { type: 'initialize', name: string }
+    | { type: 'increment' }
+    | { type: 'decrement' }
+    | { type: 'reset' };
+
+function reducer(state: State, action: Action): State {
+    switch (action.type) {
+        case 'initialize':
+            return {
+                name: action.name,
+                score: 0,
+                loading: false
+            };
+        case 'increment':
+            return {
+                ...state,
+                score: state.score + 1
+            };
+        case 'decrement':
+            return {
+                ...state,
+                score: state.score - 1
+            };
+        case 'reset':
+            return {
+                ...state,
+                score: 0
+            }
+    }
+}
+```
+
+using `useReducer`-- like:
+
+```tsx
+export function PersonScoreReducer() {
+    const [{name, score, loading}, dispatch] = useReducer(reducer, {
+        name: undefined,
+        score: 0,
+        loading: true
+    });
+    useEffect(() => {
+        getPerson().then(({name}) => {
+            dispatch({type: 'initialize', name});
+        })
+    }, []);
+
+    useEffect(() => {
+        if (!loading)
+            addButtonRef.current?.focus();
+    }, [loading]);
+
+    return (
+        <div>
+            <h3>{name}, {score}</h3>
+            <p>{expensiveCalculation}</p>
+            <button onClick={() => dispatch({type: 'increment'})}>+</button>
+            <button
+                ref={addButtonRef}
+                onClick={() => dispatch({type: 'decrement'})}>-
+            </button>
+
+            <Reset onClick={handleResetMemoized}/>
+        </div>
+    )
+}
+```
+
+That completes our exploration of the `useReducer`hook. it is more useful for complex state management.
